@@ -5,6 +5,10 @@ const ethers = require('ethers');
 const winston = require('winston');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
+// Retry configuration
+const MAX_RETRIES = 5;
+const RETRY_DELAY_MS = 2000; // Base delay in milliseconds
+
 // Configure Winston logger
 const logger = winston.createLogger({
   level: 'info',
@@ -85,7 +89,7 @@ For full terms, refer to: https://parasail.network/Parasail_User_Terms.pdf`;
     };
   }
 
-  async verifyUser() {
+  async verifyUser(retryCount = 0) {
     try {
       const signatureData = await this.generateSignature();
       
@@ -112,11 +116,20 @@ For full terms, refer to: https://parasail.network/Parasail_User_Terms.pdf`;
         logger.error(`Error setting up request: ${error.message}`);
       }
       
+      // Retry logic with exponential backoff
+      if (retryCount < MAX_RETRIES) {
+        const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
+        logger.warn(`Retrying verification in ${delay}ms... (Attempt ${retryCount + 1}/${MAX_RETRIES})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.verifyUser(retryCount + 1);
+      }
+      
+      logger.error(`Max retries reached for verification. Giving up.`);
       throw error;
     }
   }
 
-  async getNodeStats() {
+  async getNodeStats(retryCount = 0) {
     try {
       const response = await axios.get(`${this.baseUrl}/v1/node/node_stats`, {
         params: { address: this.walletAddress },
@@ -138,14 +151,28 @@ For full terms, refer to: https://parasail.network/Parasail_User_Terms.pdf`;
       if (error.response) {
         logger.error(`Node Stats Error: Status: ${error.response.status}`);
         logger.error(`Data: ${JSON.stringify(error.response.data)}`);
+      } else {
+        logger.error(`Failed to fetch node stats: ${error.message}`);
       }
       
-      logger.error(`Failed to fetch node stats: ${error.message}`);
+      // Retry logic with exponential backoff for network errors and 5xx errors
+      const isRetryable = !error.response || (error.response && error.response.status >= 500);
+      if (isRetryable && retryCount < MAX_RETRIES) {
+        const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
+        logger.warn(`Retrying get node stats in ${delay}ms... (Attempt ${retryCount + 1}/${MAX_RETRIES})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.getNodeStats(retryCount + 1);
+      }
+      
+      if (retryCount >= MAX_RETRIES) {
+        logger.error(`Max retries reached for getting node stats. Giving up.`);
+      }
+      
       throw error;
     }
   }
 
-  async checkIn() {
+  async checkIn(retryCount = 0) {
     try {
       const checkInResponse = await axios.post(
         `${this.baseUrl}/v1/node/check_in`, 
@@ -172,14 +199,28 @@ For full terms, refer to: https://parasail.network/Parasail_User_Terms.pdf`;
       if (error.response) {
         logger.error(`Check-in Error: Status: ${error.response.status}`);
         logger.error(`Data: ${JSON.stringify(error.response.data)}`);
+      } else {
+        logger.error(`Check-in error: ${error.message}`);
       }
       
-      logger.error(`Check-in error: ${error.message}`);
+      // Retry logic with exponential backoff for network errors and 5xx errors
+      const isRetryable = !error.response || (error.response && error.response.status >= 500);
+      if (isRetryable && retryCount < MAX_RETRIES) {
+        const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
+        logger.warn(`Retrying check-in in ${delay}ms... (Attempt ${retryCount + 1}/${MAX_RETRIES})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.checkIn(retryCount + 1);
+      }
+      
+      if (retryCount >= MAX_RETRIES) {
+        logger.error(`Max retries reached for check-in. Giving up.`);
+      }
+      
       throw error;
     }
   }
 
-  async onboardNode() {
+  async onboardNode(retryCount = 0) {
     try {
       const response = await axios.post(`${this.baseUrl}/v1/node/onboard`, 
         { address: this.walletAddress },
@@ -205,9 +246,23 @@ For full terms, refer to: https://parasail.network/Parasail_User_Terms.pdf`;
       if (error.response) {
         logger.error(`Onboarding Error: Status: ${error.response.status}`);
         logger.error(`Data: ${JSON.stringify(error.response.data)}`);
+      } else {
+        logger.error(`Onboarding error: ${error.message}`);
       }
       
-      logger.error(`Onboarding error: ${error.message}`);
+      // Retry logic with exponential backoff for network errors and 5xx errors
+      const isRetryable = !error.response || (error.response && error.response.status >= 500);
+      if (isRetryable && retryCount < MAX_RETRIES) {
+        const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
+        logger.warn(`Retrying onboarding in ${delay}ms... (Attempt ${retryCount + 1}/${MAX_RETRIES})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.onboardNode(retryCount + 1);
+      }
+      
+      if (retryCount >= MAX_RETRIES) {
+        logger.error(`Max retries reached for onboarding. Giving up.`);
+      }
+      
       throw error;
     }
   }
